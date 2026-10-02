@@ -1,4 +1,4 @@
-"""Модели данных для документов базы знаний."""
+"""Модели данных для документов и векторного индекса базы знаний."""
 
 from pathlib import Path
 
@@ -45,3 +45,35 @@ class Chunk(BaseModel):
         """Количество символов в чанке."""
 
         return len(self.content)
+
+
+class VectorizedChunk(BaseModel):
+    """Чанк вместе с подготовленным приложением embedding-вектором."""
+
+    model_config = ConfigDict(frozen=True)
+
+    content: str
+    metadata: ChunkMetadata
+    vector: tuple[float, ...]
+
+
+class RepositorySyncResult(BaseModel):
+    """Статистика полной синхронизации векторной коллекции."""
+
+    model_config = ConfigDict(frozen=True)
+
+    inserted: int
+    updated: int
+    deleted: int
+    total: int
+
+
+class ChunkSearchResult(BaseModel):
+    """Найденный чанк с расстоянием до поискового вектора."""
+
+    model_config = ConfigDict(frozen=True)
+
+    uuid: str
+    content: str
+    metadata: ChunkMetadata
+    distance: float
