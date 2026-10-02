@@ -1,0 +1,39 @@
+[project]
+name = "rag-service"
+version = "0.1.0"
+description = "Учебный RAG-сервис с локальной базой знаний"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "pydantic>=2.12",
+]
+
+[project.scripts]
+rag-kb = "rag_service.cli:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18",
+    "pre-commit>=4.3",
+    "pytest>=8.4",
+    "ruff>=0.14",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.14"
+files = ["src", "tests"]
+strict = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
