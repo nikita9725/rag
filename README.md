@@ -1,100 +1,181 @@
 # RAG Service
 
-Учебный проект, который шаг за шагом строит RAG-пайплайн: от локальных документов до
-ответов LLM, основанных на найденном контексте.
+Учебный RAG-сервис, который загружает локальные документы, разбивает их на чанки,
+строит локальные embeddings и синхронизирует векторный индекс в Weaviate.
 
-## День 1 — подготовка документов
+## Pipeline
 
-На первом этапе проект:
+Индексация оформлена как последовательность явных шагов:
 
-- читает UTF-8 `.txt`-файлы из локальной базы знаний;
-- нормализует Unicode и переводы строк;
-- удаляет пустые строки и лишние пробелы;
-- выводит имена загруженных документов и длину очищенного текста.
+1. `load` — чтение и очистка UTF-8 `.txt`-файлов;
+2. `chunk` — разбиение с настраиваемыми размером и overlap;
+3. `embed` — построение embeddings локальной моделью;
+4. `sync` — полная синхронизация коллекции Weaviate;
+5. `verify` — проверка количества объектов и контрольный vector search.
 
-## День 2 — chunking
+Embedding provider и repository задаются интерфейсами, поэтому в unit-тестах они
+заменяются стабами.
 
-После загрузки каждый документ автоматически разбивается на перекрывающиеся чанки.
-Splitter старается завершать фрагменты на границе абзаца, предложения или слова, а не
-в произвольном месте текста.
+## Установка и локальная модель
 
-По умолчанию используются:
-
-- `chunk_size=500` символов — достаточно контекста для учебных документов без смешивания
-  большого количества тем;
-- `chunk_overlap=100` символов — около 20% предыдущего фрагмента сохраняется, чтобы не
-  потерять мысль на границе чанков.
-
-Каждый чанк существует в памяти программы и содержит текст и метаданные:
-`document_id`, `source_name`, `chunk_id`. Постоянное хранение появится на следующих этапах
-вместе с embeddings и векторной базой. В день 2 Weaviate не требуется.
-
-## Установка и запуск
-
-Требуются `uv` и Python 3.14. Допустимый диапазон версий указан в `pyproject.toml`,
-а точные версии зависимостей зафиксированы в `uv.lock`.
+Требуются `uv`, Python 3.14 и Docker Compose.
 
 ```shell
 uv sync
+cp .env.example .env
+```
+
+Модель `intfloat/multilingual-e5-small` сохраняется в
+`models/multilingual-e5-small`. Это полноценный локальный snapshot, а не внешний
+runtime-сервис. Каталог исключён из Git из-за размера модели. После первой загрузки
+индексация работает без повторного обращения к Hugging Face.
+
+Отдельная команда загрузки не требуется: первый `uv run rag-kb` автоматически
+скачает модель, а следующие запуски сразу используют локальный каталог.
+
+Документы кодируются с префиксом `passage:`, поисковые запросы — с `query:`.
+Нормализованные векторы имеют размерность 384.
+
+## Запуск Weaviate
+
+```shell
+docker compose up -d
+docker compose ps
+```
+
+Compose поднимает:
+
+- Weaviate REST API: `http://localhost:8080`;
+- Weaviate gRPC: `localhost:50051`;
+- локальный Weaviate UI: `http://localhost:7777`.
+
+Данные БД сохраняются в Docker volume `weaviate_data`.
+
+## Индексация
+
+```shell
 uv run rag-kb
 ```
 
-Другую папку можно передать позиционным аргументом:
+Другую папку и параметры chunking можно передать явно:
 
 ```shell
-uv run rag-kb path/to/documents
+uv run rag-kb path/to/documents --chunk-size 300 --chunk-overlap 60
 ```
 
-Размер чанка и overlap можно менять для экспериментов:
+Коллекция `KnowledgeChunk` содержит свойства `document_id`, `source_name`,
+`chunk_id`, `text` и supplied vector. Стабильный UUID строится из позиции чанка,
+поэтому повторный запуск обновляет объекты без дублей. Чанки, которых больше нет в
+текущей базе знаний, удаляются только после успешной записи актуального набора.
+
+Настройки находятся в `.env`:
+
+```dotenv
+EMBEDDING_MODEL_ID=intfloat/multilingual-e5-small
+EMBEDDING_MODEL_REVISION=614241f622f53c4eeff9890bdc4f31cfecc418b3
+EMBEDDING_MODEL_PATH=models/multilingual-e5-small
+EMBEDDING_DEVICE=cpu
+EMBEDDING_BATCH_SIZE=32
+
+WEAVIATE_URL=http://localhost:8080
+WEAVIATE_GRPC_PORT=50051
+WEAVIATE_COLLECTION=KnowledgeChunk
+WEAVIATE_INTEGRATION_COLLECTION=KnowledgeChunkIntegration
+WEAVIATE_E2E_COLLECTION=KnowledgeChunkE2E
+```
+
+## Тесты
+
+Unit-тесты не требуют модели, сети или Docker:
 
 ```shell
-uv run rag-kb --chunk-size 300 --chunk-overlap 60
+uv run pytest tests/unit
 ```
 
-Команда выводит общее число созданных чанков и первые три примера вместе с метаданными.
-
-Также доступен модульный запуск:
+Integration и e2e используют настоящий локальный snapshot модели и реальный
+Weaviate. Если локальной модели ещё нет, первый запуск скачает её автоматически.
 
 ```shell
-uv run python -m rag_service
+docker compose up -d
+uv run pytest -m integration tests/integration
+uv run pytest -m e2e tests/e2e
 ```
 
-## Проверки
+Статические проверки:
 
 ```shell
 uv run ruff check .
+uv run ruff format --check .
 uv run mypy
-uv run pytest
 ```
 
-## Pre-commit
+## Локальная отладка
 
-Установить Git hook один раз после `uv sync`:
+Полный запуск с чистого checkout:
 
 ```shell
-uv run pre-commit install
+uv sync
+test -f .env || cp .env.example .env
+docker compose up -d
+docker compose ps
+uv run rag-kb
 ```
 
-Запустить все проверки вручную:
+Первый запуск `rag-kb` без загруженной модели автоматически скачает snapshot в
+`EMBEDDING_MODEL_PATH`. Загрузка модели не требует отдельного CLI-аргумента.
+
+Логи контейнеров и проверки API:
 
 ```shell
-uv run pre-commit run --all-files
+docker compose logs -f weaviate
+curl http://localhost:8080/v1/.well-known/ready
+curl http://localhost:8080/v1/schema
 ```
 
-Перед коммитом выполняются Ruff, проверка форматирования и mypy. Тесты запускаются
-отдельно командой `uv run pytest`.
+Запуск одного теста и отладчика Python:
+
+```shell
+uv run pytest tests/unit/test_pipeline.py -vv
+uv run python -m pdb -m rag_service
+```
+
+Обычная остановка сохраняет данные в Docker volume:
+
+```shell
+docker compose stop
+```
+
+Полное удаление контейнеров вместе с локальными данными Weaviate — деструктивная
+операция:
+
+```shell
+docker compose down -v
+```
+
+## Проверка через веб-интерфейс
+
+1. Запустите `docker compose up -d` и выполните `uv run rag-kb`.
+2. Откройте `http://localhost:7777`.
+3. Выберите коллекцию `KnowledgeChunk`.
+4. Проверьте UUID, `document_id`, `source_name`, `chunk_id`, `text` и количество
+   объектов.
+5. Повторно выполните `uv run rag-kb`: количество объектов не должно увеличиться.
+
+Готовность самой БД можно проверить в браузере по адресу
+`http://localhost:8080/v1/.well-known/ready`.
 
 ## Структура
 
 ```text
-knowledge_base/        учебные документы
+knowledge_base/               исходные TXT-документы
+models/                       локально сохранённая embedding-модель
 src/rag_service/
-  chunker.py           разбиение документов на чанки
-  cli.py               консольная команда
-  loader.py            чтение и очистка документов
-  schemas.py           модели документа, чанка и метаданных
-tests/                  автоматические тесты
+  embeddings.py              model manager и локальный embedding provider
+  pipeline.py                явные шаги индексации
+  repository.py              Weaviate repository
+  interfaces.py              стратегии provider/repository
+  loader.py, chunker.py       подготовка документов
+tests/unit/                   тесты со стабами
+tests/integration/            модель + настоящий Weaviate
+tests/e2e/                    полный production pipeline
 ```
-
-Следующие этапы добавят embeddings, Weaviate, semantic retrieval, grounded generation и
-оценку качества. OpenAI API и Weaviate намеренно ещё не подключены.
