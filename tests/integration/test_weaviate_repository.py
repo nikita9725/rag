@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 
 import pytest
+from weaviate import WeaviateClient
 
 from rag_service.embeddings import LocalEmbeddingProvider
 from rag_service.repository import WeaviateChunkRepository
@@ -57,4 +58,32 @@ def test_repository_syncs_updates_deletes_and_searches_real_vectors(
     assert len(results) == 1
     assert results[0].content == changed[0].content
     assert results[0].metadata.source_name == "doc-0.txt"
+    assert results[0].distance is not None
     assert results[0].distance >= 0
+
+    hybrid = integration_repository.hybrid_search("Weaviate embeddings", query, 3, 0.5)
+    assert len(hybrid) == 1
+    assert hybrid[0].metadata.source_name == "doc-0.txt"
+    assert hybrid[0].score is not None
+    assert hybrid[0].distance is None
+
+
+def test_search_does_not_create_missing_collection(
+    integration_repository: WeaviateChunkRepository,
+    weaviate_client: WeaviateClient,
+) -> None:
+    from rag_service.repository import RepositoryError
+
+    with pytest.raises(RepositoryError, match="rag-kb"):
+        integration_repository.search([1.0] * 384, 3)
+    with pytest.raises(RepositoryError, match="rag-kb"):
+        integration_repository.hybrid_search("Weaviate", [1.0] * 384, 3, 0.5)
+    assert not weaviate_client.collections.exists(integration_repository.collection_name)
+
+
+def test_existing_empty_collection_returns_no_results(
+    integration_repository: WeaviateChunkRepository,
+) -> None:
+    integration_repository.sync([])
+    assert integration_repository.search([1.0] * 384, 3) == []
+    assert integration_repository.hybrid_search("Weaviate", [1.0] * 384, 3, 0.5) == []

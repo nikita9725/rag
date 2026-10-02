@@ -1,0 +1,27 @@
+[
+  {
+    "query": "Зачем соседние чанки частично перекрываются?",
+    "source_name": "02_chunking.txt",
+    "expected_fragment": "Перекрытие помогает не потерять предложение или определение"
+  },
+  {
+    "query": "Почему документы и вопрос нужно кодировать одной embedding-моделью?",
+    "source_name": "03_embeddings.txt",
+    "expected_fragment": "Документы и пользовательский вопрос должны кодироваться совместимой embedding-моделью"
+  },
+  {
+    "query": "Какие данные сохраняются вместе с чанком в Weaviate?",
+    "source_name": "04_weaviate.txt",
+    "expected_fragment": "Вместе с текстом сохраняются имя исходного файла, номер чанка"
+  },
+  {
+    "query": "Как top-k влияет на найденный контекст?",
+    "source_name": "05_retrieval.txt",
+    "expected_fragment": "Малое значение может пропустить полезный контекст"
+  },
+  {
+    "query": "Как оценить качество retrieval отдельно от ответа?",
+    "source_name": "07_quality_evaluation.txt",
+    "expected_fragment": "Retrieval оценивают по тому, попал ли нужный фрагмент в top-k"
+  }
+]

@@ -8,7 +8,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 import weaviate
 from weaviate import WeaviateClient
 from weaviate.classes.config import Configure, DataType, Property, VectorDistances
-from weaviate.classes.query import MetadataQuery
+from weaviate.classes.query import HybridFusion, MetadataQuery
 from weaviate.collections import Collection
 
 from rag_service.interfaces import ChunkRepository
@@ -125,7 +125,7 @@ class WeaviateChunkRepository(ChunkRepository):
         if limit <= 0:
             raise ValueError("Лимит поиска должен быть больше нуля")
 
-        collection = self._ensure_collection()
+        collection = self._get_collection()
         response = collection.query.near_vector(
             near_vector=list(vector),
             limit=limit,
@@ -150,6 +150,56 @@ class WeaviateChunkRepository(ChunkRepository):
                 )
             )
         return results
+
+    def hybrid_search(
+        self, query: str, vector: Sequence[float], limit: int, alpha: float
+    ) -> list[ChunkSearchResult]:
+        if not query.strip() or not vector:
+            raise ValueError("Вопрос и поисковый вектор не могут быть пустыми")
+        if limit <= 0:
+            raise ValueError("Лимит поиска должен быть больше нуля")
+        if not 0 <= alpha <= 1:
+            raise ValueError("Alpha должен находиться в диапазоне [0, 1]")
+        collection = self._get_collection()
+        response = collection.query.hybrid(
+            query=query,
+            vector=list(vector),
+            limit=limit,
+            alpha=alpha,
+            query_properties=["text"],
+            fusion_type=HybridFusion.RELATIVE_SCORE,
+            return_metadata=MetadataQuery(score=True),
+        )
+        results: list[ChunkSearchResult] = []
+        for item in response.objects:
+            if item.metadata.score is None:
+                raise RepositoryError("Weaviate не вернул score для hybrid результата")
+            properties = item.properties
+            results.append(
+                ChunkSearchResult(
+                    uuid=str(item.uuid),
+                    content=str(properties["text"]),
+                    metadata=ChunkMetadata(
+                        document_id=str(properties["document_id"]),
+                        source_name=str(properties["source_name"]),
+                        chunk_id=int(properties["chunk_id"]),
+                    ),
+                    score=float(item.metadata.score),
+                )
+            )
+        return results
+
+    def _get_collection(self) -> ChunkCollection:
+        """Получить существующий индекс без создания коллекции при поиске."""
+        if not self._client.is_ready():
+            raise RepositoryError("Weaviate недоступен или ещё не готов")
+        if not self._client.collections.exists(self.collection_name):
+            raise RepositoryError("Коллекция отсутствует; выполните rag-kb для индексации")
+        collection = self._client.collections.use(
+            self.collection_name, data_model_properties=ChunkProperties
+        )
+        self._validate_schema(collection)
+        return collection
 
     def _ensure_collection(self) -> ChunkCollection:
         if not self._client.is_ready():

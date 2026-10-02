@@ -2,6 +2,7 @@
 
 Учебный RAG-сервис, который загружает локальные документы, разбивает их на чанки,
 строит локальные embeddings и синхронизирует векторный индекс в Weaviate.
+По пользовательскому вопросу возвращает контекст через semantic или hybrid retrieval.
 
 ## Pipeline
 
@@ -83,6 +84,57 @@ WEAVIATE_COLLECTION=KnowledgeChunk
 WEAVIATE_INTEGRATION_COLLECTION=KnowledgeChunkIntegration
 WEAVIATE_E2E_COLLECTION=KnowledgeChunkE2E
 ```
+
+## Поиск контекста — день 4
+
+После запуска Weaviate и индексации можно передать вопрос отдельной команде:
+
+```shell
+uv run rag-query "Зачем соседние чанки частично перекрываются?" --top-k 3
+uv run rag-query "Зачем соседние чанки частично перекрываются?" --top-k 3 --mode hybrid --alpha 0.5
+```
+
+По умолчанию используются semantic search и top-k 3. Выдача содержит полный текст
+каждого чанка, его позицию, `source_name`, `chunk_id` и метрику. Например:
+
+```text
+1. source_name=02_chunking.txt chunk_id=0 distance=0.136178
+Разбиение текста на чанки
+...
+```
+
+В semantic режиме выводится cosine distance: меньше — ближе к вопросу. Hybrid
+объединяет vector search и BM25 по свойству `text` через relative score fusion;
+выводится score: больше — выше в выдаче. Метрики разных режимов не сравниваются
+напрямую и не являются вероятностью правильного ответа. `--alpha` доступен только
+для hybrid: 0 означает только BM25, 1 — только vector search, по умолчанию 0.5.
+
+Поиск использует ту же локальную модель с префиксом `query:`. Он не изменяет индекс
+и не создаёт отсутствующую коллекцию: сначала выполните `uv run rag-kb`. Пустой
+вопрос, неположительный top-k и alpha вне `[0, 1]` отклоняются до загрузки модели.
+Пустая выдача сопровождается сообщением, ошибки подключения завершают CLI с
+ненулевым кодом. Порог релевантности пока не применяется, поэтому даже для вопроса
+вне базы могут вернуться тематически слабые чанки.
+
+Python-интерфейс для следующих этапов:
+
+```python
+from rag_service.retrieval import RetrievalService
+
+results = RetrievalService(provider, repository).retrieve(
+    "Как top-k влияет на контекст?", top_k=3, mode="hybrid", alpha=0.5
+)
+```
+
+Каждый результат — `ChunkSearchResult`: `content`, `metadata`, `uuid`,
+`distance` и `score`. Для semantic заполнен `distance`, для hybrid — `score`;
+другая метрика равна `None`. Порядок Weaviate сохраняется.
+
+Пять проверочных вопросов с ожидаемыми фактами находятся в
+[`tests/data/retrieval_questions.json`](tests/data/retrieval_questions.json).
+[Отчёт проверки](docs/day04-retrieval.md) содержит фактические top-3 обоих режимов,
+полные тексты чанков и оценку релевантности. E2E-тест повторяет эти десять поисков
+в отдельной тестовой коллекции.
 
 ## Тесты
 
@@ -172,6 +224,8 @@ models/                       локально сохранённая embedding-
 src/rag_service/
   embeddings.py              model manager и локальный embedding provider
   pipeline.py                явные шаги индексации
+  retrieval.py               сервис semantic/hybrid retrieval
+  query_cli.py               CLI поиска контекста
   repository.py              Weaviate repository
   interfaces.py              стратегии provider/repository
   loader.py, chunker.py       подготовка документов
