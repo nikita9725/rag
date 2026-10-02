@@ -69,11 +69,12 @@ class RepositorySyncResult(BaseModel):
 
 
 class ChunkSearchResult(BaseModel):
-    """Найденный чанк с расстоянием до поискового вектора."""
+    """Найденный чанк с semantic distance или hybrid score."""
 
     model_config = ConfigDict(frozen=True)
 
     uuid: str
     content: str
     metadata: ChunkMetadata
-    distance: float
+    distance: float | None = None
+    score: float | None = None

@@ -31,6 +31,11 @@ class StubChunkRepository(ChunkRepository):
     def count(self) -> int:
         return len(self.chunks)
 
+    def hybrid_search(
+        self, query: str, vector: Sequence[float], limit: int, alpha: float
+    ) -> list[ChunkSearchResult]:
+        raise NotImplementedError
+
     def search(self, vector: Sequence[float], limit: int) -> list[ChunkSearchResult]:
         chunk = self.chunks[0]
         return [

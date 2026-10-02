@@ -27,3 +27,8 @@ class ChunkRepository(Protocol):
 
     def search(self, vector: Sequence[float], limit: int) -> list[ChunkSearchResult]:
         """Найти ближайшие чанки по готовому вектору."""
+
+    def hybrid_search(
+        self, query: str, vector: Sequence[float], limit: int, alpha: float
+    ) -> list[ChunkSearchResult]:
+        """Совместить поиск по тексту и готовому вектору."""
