@@ -69,7 +69,7 @@ class RepositorySyncResult(BaseModel):
 
 
 class ChunkSearchResult(BaseModel):
-    """Найденный чанк с semantic distance или hybrid score."""
+    """Найденный чанк с cosine distance и, для hybrid, исходным fusion score."""
 
     model_config = ConfigDict(frozen=True)
 

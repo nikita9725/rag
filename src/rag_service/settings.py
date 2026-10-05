@@ -6,6 +6,8 @@ from typing import Annotated
 from pydantic import AnyHttpUrl, Field, SecretStr, StringConstraints, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from rag_service.retrieval_quality import DEFAULT_MAX_DISTANCE
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -31,6 +33,9 @@ class Settings(BaseSettings):
     weaviate_collection: NonEmptyString = "KnowledgeChunk"
     weaviate_integration_collection: NonEmptyString = "KnowledgeChunkIntegration"
     weaviate_e2e_collection: NonEmptyString = "KnowledgeChunkE2E"
+    retrieval_max_distance: float = Field(
+        default=DEFAULT_MAX_DISTANCE, ge=0, le=2, allow_inf_nan=False
+    )
 
     @field_validator("embedding_model_path")
     @classmethod

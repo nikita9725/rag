@@ -13,6 +13,7 @@ from rag_service.schemas import ChunkMetadata, ChunkSearchResult
 class RetrievalResources:
     def __init__(self) -> None:
         self.service = Mock(spec=RetrievalService)
+        self.service.max_distance = 0.2
         self.service.retrieve.return_value = []
         self.opened = False
         self.closed = False
@@ -53,7 +54,7 @@ def test_cli_shows_context_and_closes_resources(
             uuid="one",
             content="Проверяемый контекст",
             metadata=ChunkMetadata(document_id="doc", source_name="doc.txt", chunk_id=2),
-            distance=0.2 if mode == "semantic" else None,
+            distance=0.2,
             score=0.8 if mode == "hybrid" else None,
         )
     ]
@@ -62,6 +63,8 @@ def test_cli_shows_context_and_closes_resources(
     assert "source_name=doc.txt chunk_id=2" in output
     assert "Проверяемый контекст" in output
     assert ("distance=0.200000" if mode == "semantic" else "score=0.800000") in output
+    assert "Порог cosine distance: 0.2" in output
+    assert "distance=0.200000" in output
     assert resources.closed
 
 

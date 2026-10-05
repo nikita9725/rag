@@ -17,6 +17,7 @@ dependencies = [
 rag-kb = "rag_service.cli:main"
 rag-query = "rag_service.query_cli:main"
 rag-answer = "rag_service.answer_cli:main"
+rag-evaluate = "rag_service.evaluation_cli:main"
 
 [dependency-groups]
 dev = [
