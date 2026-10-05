@@ -25,6 +25,9 @@ def main(
     parser = build_parser()
     parser.description = "Ответить на вопрос по контексту из Weaviate"
     parser.add_argument("--compare", action="store_true", help="сравнить с ответом без retrieval")
+    parser.add_argument(
+        "--show-context", action="store_true", help="показать контекст, переданный LLM"
+    )
     args = parser.parse_args(argv)
     try:
         if args.alpha is not None and args.mode != "hybrid":
@@ -59,3 +62,19 @@ def main(
         )
     if not result.sources:
         print("Нет использованных источников.")
+
+    if args.show_context:
+        print("\nКонтекст, переданный LLM:")
+        for source_id, chunk in enumerate(result.context, 1):
+            metrics = " ".join(
+                f"{name}={value:.6f}"
+                for name, value in (("distance", chunk.distance), ("score", chunk.score))
+                if value is not None
+            )
+            print(
+                f"[{source_id}] source_name={chunk.metadata.source_name} "
+                f"document_id={chunk.metadata.document_id} "
+                f"chunk_id={chunk.metadata.chunk_id} uuid={chunk.uuid} {metrics}\n{chunk.content}"
+            )
+        if not result.context:
+            print("Контекст пуст; LLM не вызывалась для RAG-ответа.")

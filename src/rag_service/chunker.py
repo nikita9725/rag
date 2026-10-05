@@ -5,8 +5,8 @@ from collections.abc import Sequence
 
 from rag_service.schemas import Chunk, ChunkMetadata, Document
 
-DEFAULT_CHUNK_SIZE = 500
-DEFAULT_CHUNK_OVERLAP = 100
+DEFAULT_CHUNK_SIZE = 800
+DEFAULT_CHUNK_OVERLAP = 160
 _MIN_BOUNDARY_POSITION_RATIO = 0.6
 _SENTENCE_END_PATTERN = re.compile(r"[.!?](?=\s)")
 

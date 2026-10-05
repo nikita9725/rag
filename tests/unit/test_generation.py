@@ -46,6 +46,7 @@ def test_empty_context_skips_llm() -> None:
     retrieval.retrieve.return_value = []
     answer = RAGService(retrieval, llm).answer("вопрос")
     assert answer.insufficient_context and not answer.sources
+    retrieval.retrieve.assert_called_once_with("вопрос", 5, "semantic", 0.5)
     llm.complete.assert_not_called()
 
 

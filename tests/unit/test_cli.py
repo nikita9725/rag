@@ -1,9 +1,14 @@
 from collections.abc import Sequence
 from pathlib import Path
 
+from rag_service.chunker import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
 from rag_service.cli import build_parser, index_knowledge_base
+from rag_service.generation_pipeline import GenerationContext
 from rag_service.interfaces import EmbeddingProvider
+from rag_service.pipeline import PipelineContext
+from rag_service.query_cli import build_parser as query_parser
 from rag_service.repositories import ChunkRepository
+from rag_service.retrieval import DEFAULT_TOP_K
 from rag_service.schemas import ChunkSearchResult, RepositorySyncResult, VectorizedChunk
 
 
@@ -71,3 +76,16 @@ def test_index_pipeline_uses_stub_repository(tmp_path: Path) -> None:
     assert repository.chunks[0].vector == (1.0, 0.0)
     assert provider.document_inputs == ["Один документ"]
     assert provider.query_inputs == ["Один документ"]
+
+
+def test_product_defaults_are_consistent() -> None:
+    args = build_parser().parse_args([])
+    context = PipelineContext(directory=Path("knowledge_base"))
+    assert args.chunk_size == context.chunk_size == DEFAULT_CHUNK_SIZE == 800
+    assert args.chunk_overlap == context.chunk_overlap == DEFAULT_CHUNK_OVERLAP == 160
+    assert (
+        query_parser().parse_args(["вопрос"]).top_k
+        == GenerationContext(query="q").top_k
+        == DEFAULT_TOP_K
+        == 5
+    )
