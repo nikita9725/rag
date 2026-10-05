@@ -1,0 +1,56 @@
+[
+  {
+    "query": "Зачем соседние чанки частично перекрываются?",
+    "expected_sources": [
+      "02_chunking.txt"
+    ],
+    "insufficient_context": false
+  },
+  {
+    "query": "Почему документы и вопрос нужно кодировать одной embedding-моделью?",
+    "expected_sources": [
+      "03_embeddings.txt"
+    ],
+    "insufficient_context": false
+  },
+  {
+    "query": "Какие данные сохраняются вместе с чанком в Weaviate?",
+    "expected_sources": [
+      "04_weaviate.txt"
+    ],
+    "insufficient_context": false
+  },
+  {
+    "query": "Как top-k влияет на найденный контекст?",
+    "expected_sources": [
+      "05_retrieval.txt"
+    ],
+    "insufficient_context": false
+  },
+  {
+    "query": "Как оценить качество retrieval отдельно от ответа?",
+    "expected_sources": [
+      "07_quality_evaluation.txt"
+    ],
+    "insufficient_context": false
+  },
+  {
+    "query": "Зачем сохранять метаданные чанков и как они помогают проверять ответ модели?",
+    "expected_sources": [
+      "02_chunking.txt",
+      "06_grounded_generation.txt"
+    ],
+    "insufficient_context": false,
+    "min_source_documents": 2
+  },
+  {
+    "query": "Какая точная версия Weaviate установлена в этом проекте?",
+    "expected_sources": [],
+    "insufficient_context": true
+  },
+  {
+    "query": "Каков размер контекстного окна модели deepseek-flash в токенах?",
+    "expected_sources": [],
+    "insufficient_context": true
+  }
+]

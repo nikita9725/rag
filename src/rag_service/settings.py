@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import AnyHttpUrl, Field, StringConstraints, field_validator
+from pydantic import AnyHttpUrl, Field, SecretStr, StringConstraints, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -49,3 +49,28 @@ class Settings(BaseSettings):
         normalized = value.strip()
         AnyHttpUrl(normalized)
         return normalized.rstrip("/")
+
+
+class LLMSettings(BaseSettings):
+    """Обязательные настройки только для команд генерации."""
+
+    model_config = SettingsConfigDict(
+        env_file=PROJECT_ROOT / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        frozen=True,
+        hide_input_in_errors=True,
+    )
+
+    llm_api_key: SecretStr
+    llm_base_url: AnyHttpUrl
+    llm_model: NonEmptyString
+    llm_retry_max_attempts: int = Field(default=3, ge=1)
+    llm_retry_base_delay_seconds: float = Field(default=0.5, ge=0, allow_inf_nan=False)
+
+    @field_validator("llm_api_key")
+    @classmethod
+    def validate_api_key(cls, value: SecretStr) -> SecretStr:
+        if not value.get_secret_value().strip():
+            raise ValueError("LLM_API_KEY не может быть пустым")
+        return value

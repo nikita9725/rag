@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from rag_service.chunker import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
 from rag_service.embeddings import LocalEmbeddingProvider, LocalModelError, LocalModelManager
-from rag_service.interfaces import ChunkRepository, EmbeddingProvider
+from rag_service.interfaces import EmbeddingProvider
 from rag_service.pipeline import (
     ChunkDocumentsStep,
     EmbedChunksStep,
@@ -20,7 +20,12 @@ from rag_service.pipeline import (
     SyncChunksStep,
     VerifyIndexStep,
 )
-from rag_service.repository import RepositoryError, WeaviateChunkRepository, connect_to_weaviate
+from rag_service.repositories import (
+    ChunkRepository,
+    RepositoryError,
+    WeaviateChunkRepository,
+    connect_to_weaviate,
+)
 from rag_service.settings import Settings
 
 

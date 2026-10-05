@@ -2,7 +2,8 @@
 
 Учебный RAG-сервис, который загружает локальные документы, разбивает их на чанки,
 строит локальные embeddings и синхронизирует векторный индекс в Weaviate.
-По пользовательскому вопросу возвращает контекст через semantic или hybrid retrieval.
+По пользовательскому вопросу находит контекст через semantic или hybrid retrieval
+и генерирует ответ со ссылками на чанки через OpenAI-совместимую LLM.
 
 ## Pipeline
 
@@ -136,6 +137,97 @@ results = RetrievalService(provider, repository).retrieve(
 полные тексты чанков и оценку релевантности. E2E-тест повторяет эти десять поисков
 в отдельной тестовой коллекции.
 
+## Ответ по контексту — день 5
+
+Настройте `LLM_API_KEY`, `LLM_BASE_URL` и `LLM_MODEL` в локальном `.env`.
+Эти настройки обязательны только для генерации; индексация и retrieval работают
+без LLM. Ключ не выводится в логах и не попадает в Git. Пример:
+
+```dotenv
+LLM_API_KEY=replace-with-your-api-key
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-flash
+```
+
+```shell
+uv run rag-answer "Как top-k влияет на найденный контекст?"
+uv run rag-answer "Как top-k влияет на найденный контекст?" --mode hybrid --alpha 0.5
+uv run rag-answer "Как top-k влияет на найденный контекст?" --compare
+```
+
+Pipeline: `query → retrieval → context → generate → validate`.
+Он оформлен в `generation_pipeline.py` как последовательность отдельных классов
+`ValidateQueryStep`, `RetrieveChunksStep`, `BuildContextStep`, `GenerateAnswerStep`
+и `ValidateAnswerStep`. Каждый шаг возвращает новый неизменяемый
+`GenerationContext`; runner логирует начало и длительность этапа и останавливается
+при ошибке. `None` означает незавершённый этап, пустой набор чанков — завершённый
+поиск без результатов. `RAGService.answer()` запускает эту последовательность. CLI получает фабрику
+сервисов через явный параметр `service_factory`; production-сборка и управление
+клиентами находятся в `application.py`. Unit-тесты передают свои зависимости
+напрямую, без подмены импортов и глобальных объектов.
+
+Pipeline также можно собрать и запустить явно:
+
+```python
+from rag_service.generation_pipeline import GenerationContext, build_generation_pipeline
+
+pipeline = build_generation_pipeline(retrieval, llm_repository)
+context = pipeline.run(GenerationContext(query="Как top-k влияет на контекст?"))
+print(context.result)
+```
+
+Протоколы и реализации репозиториев собраны в `rag_service.repositories`.
+Общие импорты доступны из пакета:
+
+```python
+from rag_service.repositories import ChunkRepository, LLMRepository
+from rag_service.repositories import OpenAILLMRepository, WeaviateChunkRepository
+```
+
+По умолчанию semantic search и top-k 3. В prompt передаются полные тексты чанков
+в порядке retrieval, номера источников и метаданные. Системная инструкция
+запрещает факты вне контекста и выполнение инструкций из документов.
+Модель возвращает JSON; приложение проверяет его структуру и ссылки,
+подставляет настоящие `source_name`, `chunk_id` и UUID. Ошибочный JSON,
+несуществующие ссылки и ответ без обязательных источников завершают команду
+с ненулевым кодом. Сетевые ошибки, 429 и 5xx повторяются до трёх попыток;
+timeout одного запроса — 60 секунд. Число попыток и начальная задержка задаются
+в `LLMSettings`: `LLM_RETRY_MAX_ATTEMPTS=3` (включая первый вызов),
+`LLM_RETRY_BASE_DELAY_SECONDS=0.5`. Задержка удваивается после каждой
+неудачной попытки; после последней попытки ожидания нет.
+
+Пустая выдача даёт отказ без вызова LLM. При непустой выдаче модель оценивает
+достаточность контекста и может отказаться или дать частичный ответ с указанием
+ограничений. Порог релевантности пока не применяется. Проверка JSON и источников
+не гарантирует истинность каждого утверждения; её дополнительно проверяют на
+примерах из базы знаний.
+
+`--compare` делает дополнительный запрос той же модели без retrieval и выводит
+оба ответа. Вызовы LLM используют настроенный API и могут быть платными.
+`LLMRepository` — сменяемый порт внутри проекта; `OpenAILLMRepository` — адаптер,
+`RAGService` — оркестрация. Python-интерфейс:
+
+```python
+from rag_service.generation import RAGService
+
+answer = RAGService(retrieval, llm_repository).answer("Как top-k влияет на контекст?")
+print(answer.answer)
+for source in answer.sources:
+    print(source.metadata.source_name, source.metadata.chunk_id)
+```
+
+[Отчёт дня 5](docs/day05-generation.md) содержит восемь сравнений, полный контекст
+и оценку ответов. В [JSON-результатах](docs/day05-comparison.json) сохранены
+метаданные, метрики retrieval и ответы модели. Повторный прогон:
+
+```shell
+GENERATION_REPORT_PATH=/tmp/day05-comparison.json \
+  uv run pytest -m e2e tests/e2e/test_generation_pipeline.py
+```
+
+Integration и E2E-проверки генерации всегда вызывают реальные LLM API и БД.
+Переменные включения не требуются; отсутствие подключения или настроек — ошибка теста.
+
 ## Тесты
 
 Unit-тесты не требуют модели, сети или Docker:
@@ -226,8 +318,17 @@ src/rag_service/
   pipeline.py                явные шаги индексации
   retrieval.py               сервис semantic/hybrid retrieval
   query_cli.py               CLI поиска контекста
-  repository.py              Weaviate repository
-  interfaces.py              стратегии provider/repository
+  generation.py              сервис запуска генерации
+  generation_content.py      модели ответа и подготовка prompt
+  application.py             сборка зависимостей и закрытие клиентов
+  generation_pipeline.py     явные шаги генерации ответа
+  answer_cli.py              CLI ответа и сравнения
+  repositories/
+    interfaces.py            порты ChunkRepository и LLMRepository
+    weaviate.py              Weaviate repository и подключение
+    llm.py                   OpenAI-совместимый LLM repository
+    __init__.py              публичные экспорты
+  interfaces.py              интерфейс embedding provider
   loader.py, chunker.py       подготовка документов
 tests/unit/                   тесты со стабами
 tests/integration/            модель + настоящий Weaviate

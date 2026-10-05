@@ -4,7 +4,7 @@ import pytest
 from weaviate import WeaviateClient
 
 from rag_service.embeddings import LocalEmbeddingProvider, LocalModelManager
-from rag_service.repository import WeaviateChunkRepository, connect_to_weaviate
+from rag_service.repositories import WeaviateChunkRepository, connect_to_weaviate
 from rag_service.settings import Settings
 
 

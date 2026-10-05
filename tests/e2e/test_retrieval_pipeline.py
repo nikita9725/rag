@@ -5,7 +5,7 @@ import pytest
 
 from rag_service.cli import index_knowledge_base
 from rag_service.embeddings import LocalEmbeddingProvider
-from rag_service.repository import WeaviateChunkRepository
+from rag_service.repositories import WeaviateChunkRepository
 from rag_service.retrieval import RetrievalService, SearchMode
 from rag_service.settings import PROJECT_ROOT
 

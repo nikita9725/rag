@@ -11,7 +11,7 @@ from weaviate.classes.config import Configure, DataType, Property, VectorDistanc
 from weaviate.classes.query import HybridFusion, MetadataQuery
 from weaviate.collections import Collection
 
-from rag_service.interfaces import ChunkRepository
+from rag_service.repositories.interfaces import ChunkRepository
 from rag_service.schemas import (
     ChunkMetadata,
     ChunkSearchResult,

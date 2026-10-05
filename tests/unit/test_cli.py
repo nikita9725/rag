@@ -2,7 +2,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from rag_service.cli import build_parser, index_knowledge_base
-from rag_service.interfaces import ChunkRepository, EmbeddingProvider
+from rag_service.interfaces import EmbeddingProvider
+from rag_service.repositories import ChunkRepository
 from rag_service.schemas import ChunkSearchResult, RepositorySyncResult, VectorizedChunk
 
 

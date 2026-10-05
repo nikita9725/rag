@@ -6,10 +6,10 @@ from collections.abc import Sequence
 from pydantic import ValidationError
 from weaviate.exceptions import WeaviateBaseError
 
-from rag_service.embeddings import LocalEmbeddingProvider, LocalModelError, LocalModelManager
-from rag_service.repository import RepositoryError, WeaviateChunkRepository, connect_to_weaviate
-from rag_service.retrieval import RetrievalService, validate_query
-from rag_service.settings import Settings
+from rag_service.application import RetrievalFactory, open_retrieval
+from rag_service.embeddings import LocalModelError
+from rag_service.repositories import RepositoryError
+from rag_service.retrieval import validate_query
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,7 +21,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def main(
+    argv: Sequence[str] | None = None, *, service_factory: RetrievalFactory = open_retrieval
+) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
@@ -29,25 +31,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             raise ValueError("--alpha разрешён только для --mode hybrid")
         alpha = args.alpha if args.alpha is not None else 0.5
         query = validate_query(args.query, args.top_k, args.mode, alpha)
-        settings = Settings()
-        manager = LocalModelManager(
-            settings.embedding_model_id,
-            settings.embedding_model_revision,
-            settings.embedding_model_path,
-        )
-        provider = LocalEmbeddingProvider(
-            manager.ensure_downloaded(),
-            device=settings.embedding_device,
-            batch_size=settings.embedding_batch_size,
-        )
-        client = connect_to_weaviate(settings.weaviate_url, settings.weaviate_grpc_port)
-        try:
-            repository = WeaviateChunkRepository(client, settings.weaviate_collection)
-            results = RetrievalService(provider, repository).retrieve(
-                query, args.top_k, args.mode, alpha
-            )
-        finally:
-            client.close()
+        with service_factory() as service:
+            results = service.retrieve(query, args.top_k, args.mode, alpha)
     except (
         ValueError,
         ValidationError,

@@ -1,4 +1,4 @@
-from rag_service.repository import chunk_uuid
+from rag_service.repositories import chunk_uuid
 from rag_service.schemas import ChunkMetadata, VectorizedChunk
 
 

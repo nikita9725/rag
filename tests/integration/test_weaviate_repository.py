@@ -4,7 +4,7 @@ import pytest
 from weaviate import WeaviateClient
 
 from rag_service.embeddings import LocalEmbeddingProvider
-from rag_service.repository import WeaviateChunkRepository
+from rag_service.repositories import RepositoryError, WeaviateChunkRepository
 from rag_service.schemas import ChunkMetadata, VectorizedChunk
 
 pytestmark = pytest.mark.integration
@@ -72,7 +72,6 @@ def test_search_does_not_create_missing_collection(
     integration_repository: WeaviateChunkRepository,
     weaviate_client: WeaviateClient,
 ) -> None:
-    from rag_service.repository import RepositoryError
 
     with pytest.raises(RepositoryError, match="rag-kb"):
         integration_repository.search([1.0] * 384, 3)
