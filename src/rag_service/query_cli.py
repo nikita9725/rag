@@ -9,13 +9,18 @@ from weaviate.exceptions import WeaviateBaseError
 from rag_service.application import RetrievalFactory, open_retrieval
 from rag_service.embeddings import LocalModelError
 from rag_service.repositories import RepositoryError
-from rag_service.retrieval import validate_query
+from rag_service.retrieval import DEFAULT_TOP_K, validate_query
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Найти контекст в Weaviate")
     parser.add_argument("query", help="вопрос пользователя")
-    parser.add_argument("--top-k", type=int, default=3)
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=DEFAULT_TOP_K,
+        help=f"число кандидатов (по умолчанию: {DEFAULT_TOP_K})",
+    )
     parser.add_argument("--mode", choices=["semantic", "hybrid"], default="semantic")
     parser.add_argument("--alpha", type=float, default=None, help="вес vector search в hybrid")
     return parser

@@ -1,386 +1,270 @@
-# RAG Service
+# RAG mini-product на Weaviate
 
-Учебный RAG-сервис, который загружает локальные документы, разбивает их на чанки,
-строит локальные embeddings и синхронизирует векторный индекс в Weaviate.
-По пользовательскому вопросу находит контекст через semantic или hybrid retrieval
-и генерирует ответ со ссылками на чанки через OpenAI-совместимую LLM.
-
-## Pipeline
-
-Индексация оформлена как последовательность явных шагов:
-
-1. `load` — чтение и очистка UTF-8 `.txt`-файлов;
-2. `chunk` — разбиение с настраиваемыми размером и overlap;
-3. `embed` — построение embeddings локальной моделью;
-4. `sync` — полная синхронизация коллекции Weaviate;
-5. `verify` — проверка количества объектов и контрольный vector search.
-
-Embedding provider и repository задаются интерфейсами, поэтому в unit-тестах они
-заменяются стабами.
-
-## Установка и локальная модель
-
-Требуются `uv`, Python 3.14 и Docker Compose.
-
-```shell
-uv sync
-cp .env.example .env
-```
-
-Модель `intfloat/multilingual-e5-small` сохраняется в
-`models/multilingual-e5-small`. Это полноценный локальный snapshot, а не внешний
-runtime-сервис. Каталог исключён из Git из-за размера модели. После первой загрузки
-индексация работает без повторного обращения к Hugging Face.
-
-Отдельная команда загрузки не требуется: первый `uv run rag-kb` автоматически
-скачает модель, а следующие запуски сразу используют локальный каталог.
-
-Документы кодируются с префиксом `passage:`, поисковые запросы — с `query:`.
-Нормализованные векторы имеют размерность 384.
-
-## Запуск Weaviate
-
-```shell
-docker compose up -d
-docker compose ps
-```
-
-Compose поднимает:
-
-- Weaviate REST API: `http://localhost:8080`;
-- Weaviate gRPC: `localhost:50051`;
-- локальный Weaviate UI: `http://localhost:7777`.
-
-Данные БД сохраняются в Docker volume `weaviate_data`.
-
-## Индексация
-
-```shell
-uv run rag-kb
-```
-
-Другую папку и параметры chunking можно передать явно:
-
-```shell
-uv run rag-kb path/to/documents --chunk-size 300 --chunk-overlap 60
-```
-
-Коллекция `KnowledgeChunk` содержит свойства `document_id`, `source_name`,
-`chunk_id`, `text` и supplied vector. Стабильный UUID строится из позиции чанка,
-поэтому повторный запуск обновляет объекты без дублей. Чанки, которых больше нет в
-текущей базе знаний, удаляются только после успешной записи актуального набора.
-
-Настройки находятся в `.env`:
-
-```dotenv
-EMBEDDING_MODEL_ID=intfloat/multilingual-e5-small
-EMBEDDING_MODEL_REVISION=614241f622f53c4eeff9890bdc4f31cfecc418b3
-EMBEDDING_MODEL_PATH=models/multilingual-e5-small
-EMBEDDING_DEVICE=cpu
-EMBEDDING_BATCH_SIZE=32
-
-WEAVIATE_URL=http://localhost:8080
-WEAVIATE_GRPC_PORT=50051
-WEAVIATE_COLLECTION=KnowledgeChunk
-WEAVIATE_INTEGRATION_COLLECTION=KnowledgeChunkIntegration
-WEAVIATE_E2E_COLLECTION=KnowledgeChunkE2E
-```
-
-## Поиск контекста — день 4
-
-После запуска Weaviate и индексации можно передать вопрос отдельной команде:
-
-```shell
-uv run rag-query "Зачем соседние чанки частично перекрываются?" --top-k 3
-uv run rag-query "Зачем соседние чанки частично перекрываются?" --top-k 3 --mode hybrid --alpha 0.5
-```
-
-По умолчанию используются semantic search, top-k 3 и порог cosine distance 0.16.
-Выдача содержит полный текст
-каждого чанка, его позицию, `source_name`, `chunk_id` и метрику. Например:
+Учебный Python-сервис отвечает по локальной базе знаний и показывает источники.
+Чанки и их векторы действительно хранятся в Weaviate; LLM получает только найденный
+контекст. Если сведений недостаточно, сервис возвращает отказ или частичный ответ.
 
 ```text
-1. source_name=02_chunking.txt chunk_id=0 distance=0.136178
-Разбиение текста на чанки
-...
+UTF-8 TXT → очистка → чанки → локальные embeddings → Weaviate
+вопрос → embedding → поиск в Weaviate → фильтр distance → LLM → ответ + sources
 ```
 
-В semantic режиме выводится cosine distance: меньше — ближе к вопросу. Hybrid
-объединяет vector search и BM25 по свойству `text` через relative score fusion;
-выводятся score (больше — выше в выдаче) и cosine distance, рассчитанный по
-сохранённому вектору чанка. Score и distance не сравниваются напрямую и не
-являются вероятностью правильного ответа. `--alpha` доступен только
-для hybrid: 0 означает только BM25, 1 — только vector search, по умолчанию 0.5.
+## Быстрый запуск
 
-Поиск использует ту же локальную модель с префиксом `query:`. Он не изменяет индекс
-и не создаёт отсутствующую коллекцию: сначала выполните `uv run rag-kb`. Пустой
-вопрос, неположительный top-k и alpha вне `[0, 1]` отклоняются до загрузки модели.
-Пустая выдача сопровождается сообщением, ошибки подключения завершают CLI с
-ненулевым кодом. Чанки с distance выше `RETRIEVAL_MAX_DISTANCE` отбрасываются
-до передачи в генерацию. Отсутствие надёжного контекста — нормальный результат,
-а не ошибка подключения.
+Требуются `uv`, Python 3.14, Docker с Compose и доступ к OpenAI-совместимому LLM API.
+Все команды выполняются из корня проекта.
 
-Python-интерфейс для следующих этапов:
-
-```python
-from rag_service.retrieval import RetrievalService
-
-results = RetrievalService(provider, repository).retrieve(
-    "Как top-k влияет на контекст?", top_k=3, mode="hybrid", alpha=0.5
-)
+```shell
+uv sync --locked
+test -f .env || cp .env.example .env
 ```
 
-Каждый результат — `ChunkSearchResult`: `content`, `metadata`, `uuid`,
-`distance` и `score`. Для semantic заполнен `distance`, для hybrid — обе метрики.
-Порядок оставшихся результатов Weaviate сохраняется. Для контрольного поиска
-без фильтра создайте `RetrievalService(provider, repository, max_distance=None)`.
-При включённом фильтре результатов может быть меньше top-k.
-
-Пять проверочных вопросов с ожидаемыми фактами находятся в
-[`tests/data/retrieval_questions.json`](tests/data/retrieval_questions.json).
-[Отчёт проверки](docs/day04-retrieval.md) содержит фактические top-3 обоих режимов,
-полные тексты чанков и оценку релевантности. E2E-тест повторяет эти десять поисков
-в отдельной тестовой коллекции.
-
-## Ответ по контексту — день 5
-
-Настройте `LLM_API_KEY`, `LLM_BASE_URL` и `LLM_MODEL` в локальном `.env`.
-Эти настройки обязательны только для генерации; индексация и retrieval работают
-без LLM. Ключ не выводится в логах и не попадает в Git. Пример:
+Заполните настройки генерации в `.env`, не публикуя ключ:
 
 ```dotenv
-LLM_API_KEY=replace-with-your-api-key
+LLM_API_KEY=your-real-api-key
 LLM_BASE_URL=https://api.deepseek.com
 LLM_MODEL=deepseek-flash
 ```
 
+Используйте URL и имя модели своего провайдера. Индексация и поиск работают без
+LLM; генерация и соответствующие тесты обращаются к API и могут быть платными.
+
 ```shell
-uv run rag-answer "Как top-k влияет на найденный контекст?"
+docker compose up -d --wait
+docker compose ps
+uv run rag-kb
+uv run rag-query "Как top-k влияет на найденный контекст?"
+uv run rag-answer "Как top-k влияет на найденный контекст?" --show-context
+```
+
+Compose поднимает Weaviate REST API на `http://localhost:8080`, gRPC на
+`localhost:50051` и UI на `http://localhost:7777`. Порты доступны только локально.
+Данные сохраняются в volume `weaviate_data`; `docker compose stop` сохраняет индекс.
+UI вспомогательный: поиск и ответы используют Python-клиент Weaviate напрямую.
+
+Первый запуск скачает snapshot `intfloat/multilingual-e5-small` в
+`models/multilingual-e5-small`; для этого нужен интернет. Дальше embeddings
+строятся локально на CPU без повторной загрузки. Префиксы: `passage:` для документов,
+`query:` для вопросов; нормализованные векторы имеют размерность 384.
+
+Ожидаемый результат на поставляемой базе: **7 документов, 7 чанков**. Повторите
+`uv run rag-kb`: число объектов не должно вырасти, новых вставок должно быть ноль.
+
+## Подготовка базы знаний и индексация
+
+В `knowledge_base/` лежат семь коротких документов о RAG. Для своей базы добавьте
+непустые `.txt` в UTF-8 непосредственно в выбранную папку: вложенные каталоги и
+другие форматы не читаются. Loader нормализует Unicode, пробелы и переносы строк;
+пустые и нечитаемые файлы пропускает с предупреждением. Если доступных документов
+нет, команда завершится с ошибкой.
+
+```shell
+uv run rag-kb path/to/documents
+uv run rag-kb path/to/documents --chunk-size 300 --chunk-overlap 60
+```
+
+По умолчанию размер чанка **800**, overlap **160** символов. Это параметры,
+выбранные [экспериментом дня 6](docs/day06-quality.md) для маленькой учебной базы.
+Все текущие документы короче 800 символов: каждый становится одним чанком,
+перекрытие фактически не используется. Для длинных документов chunker разбивает
+текст с overlap; эти значения не являются универсальным оптимумом.
+
+Индексация выполняет `load → chunk → embed → sync → verify`.
+Коллекция `KnowledgeChunk` хранит `document_id`, `source_name`, `chunk_id`, `text`
+и supplied vector. Стабильный UUID определяется документом и позицией чанка.
+Повторная индексация обновляет записи без дублей и удаляет устаревшие чанки после
+успешной записи актуального набора. **Команда синхронизирует всю коллекцию с
+выбранной папкой**, а не добавляет независимую базу к существующей.
+
+При изменении chunking выполните индексацию заново. Для отдельной базы задайте
+другое `WEAVIATE_COLLECTION` в окружении или `.env`.
+
+## Вопросы и источники
+
+```shell
+uv run rag-query "Зачем соседние чанки частично перекрываются?"
+uv run rag-answer "Зачем соседние чанки частично перекрываются?" --show-context
+uv run rag-answer "Как top-k влияет на найденный контекст?" --top-k 3
 uv run rag-answer "Как top-k влияет на найденный контекст?" --mode hybrid --alpha 0.5
 uv run rag-answer "Как top-k влияет на найденный контекст?" --compare
 ```
 
-Pipeline: `query → retrieval → context → generate → validate`.
-Он оформлен в `generation_pipeline.py` как последовательность отдельных классов
-`ValidateQueryStep`, `RetrieveChunksStep`, `BuildContextStep`, `GenerateAnswerStep`
-и `ValidateAnswerStep`. Каждый шаг возвращает новый неизменяемый
-`GenerationContext`; runner логирует начало и длительность этапа и останавливается
-при ошибке. `None` означает незавершённый этап, пустой набор чанков — завершённый
-поиск без результатов. `RAGService.answer()` запускает эту последовательность. CLI получает фабрику
-сервисов через явный параметр `service_factory`; production-сборка и управление
-клиентами находятся в `application.py`. Unit-тесты передают свои зависимости
-напрямую, без подмены импортов и глобальных объектов.
+Defaults для CLI и Python API: **semantic**, **top-k 5**, cosine distance **≤ 0.16**.
+Фильтр может оставить меньше пяти чанков. Hybrid объединяет vector search и BM25
+по тексту; `--alpha` разрешён только для hybrid: 0 — BM25, 1 — vector search.
+`--compare` дополнительно вызывает ту же LLM без retrieval.
 
-Pipeline также можно собрать и запустить явно:
+`rag-query` показывает найденные тексты и метрики. `rag-answer` показывает ответ,
+использованные источники и признак недостаточного контекста. `--show-context`
+добавляет полный набор фрагментов, переданных LLM, включая неиспользованные.
 
-```python
-from rag_service.generation_pipeline import GenerationContext, build_generation_pipeline
+Как читать результат:
 
-pipeline = build_generation_pipeline(retrieval, llm_repository)
-context = pipeline.run(GenerationContext(query="Как top-k влияет на контекст?"))
-print(context.result)
-```
+- `[1]`, `[2]` — позиции в **отфильтрованном контексте конкретного вопроса**;
+  номера совпадают в ответе, разделе источников и `--show-context`.
+- `source_name` — имя исходного файла; его можно открыть в папке базы знаний.
+- `chunk_id` — позиция чанка в документе, начиная с **нуля**; это не номер `[N]`.
+- `document_id` — идентификатор документа; `uuid` — идентификатор объекта Weaviate.
+- `distance` — cosine distance: меньше означает ближе. Hybrid также показывает
+  `score`: больше означает выше в выдаче. Эти метрики не являются вероятностью
+  правильного ответа и не сравниваются напрямую.
+- `sources` — фрагменты, на которые сослался ответ; `context` — все переданные LLM
+  фрагменты. Поэтому набор источников может быть меньше контекста.
+- `insufficient_context=true` — отказ или частичный ответ с указанием недостающих
+  сведений. В CLI этому соответствует сообщение «Контекст недостаточен…».
 
-Протоколы и реализации репозиториев собраны в `rag_service.repositories`.
-Общие импорты доступны из пакета:
+При пустом контексте RAG возвращает отказ **без вызова LLM**. При непустом контексте
+модель проверяет, есть ли нужные факты, и тоже может отказаться. Например, вопрос
+о версии Weaviate близок к учебному документу, но версия в нём не указана:
+сервис не должен брать её из Docker Compose или памяти модели.
 
-```python
-from rag_service.repositories import ChunkRepository, LLMRepository
-from rag_service.repositories import OpenAILLMRepository, WeaviateChunkRepository
-```
+Prompt запрещает внешние факты и выполнение инструкций из документов. Приложение
+проверяет JSON и номера источников, восстанавливает реальные метаданные. Это
+проверка структуры и ссылок, а не доказательство истинности каждого утверждения.
 
-По умолчанию semantic search и top-k 3. В prompt передаются полные тексты чанков
-в порядке retrieval, номера источников и метаданные. Системная инструкция
-запрещает факты вне контекста и выполнение инструкций из документов.
-Модель возвращает JSON; приложение проверяет его структуру и ссылки,
-подставляет настоящие `source_name`, `chunk_id` и UUID. Ошибочный JSON,
-несуществующие ссылки и ответ без обязательных источников завершают команду
-с ненулевым кодом. Сетевые ошибки, 429 и 5xx повторяются до трёх попыток;
-timeout одного запроса — 60 секунд. Число попыток и начальная задержка задаются
-в `LLMSettings`: `LLM_RETRY_MAX_ATTEMPTS=3` (включая первый вызов),
-`LLM_RETRY_BASE_DELAY_SECONDS=0.5`. Задержка удваивается после каждой
-неудачной попытки; после последней попытки ожидания нет.
+## Восемь demo-вопросов
 
-Пустая выдача после фильтрации даёт отказ без вызова LLM. При непустой выдаче
-модель оценивает
-достаточность контекста и может отказаться или дать частичный ответ с указанием
-ограничений и `insufficient_context=true`. Проверка JSON и источников
-не гарантирует истинность каждого утверждения; её дополнительно проверяют на
-примерах из базы знаний.
+Первые пять проверяют полный ответ, шестой — частичный, последние два — отказ:
 
-`--compare` делает дополнительный запрос той же модели без retrieval и выводит
-оба ответа. Вызовы LLM используют настроенный API и могут быть платными.
-`LLMRepository` — сменяемый порт внутри проекта; `OpenAILLMRepository` — адаптер,
-`RAGService` — оркестрация. Python-интерфейс:
+1. Зачем соседние чанки частично перекрываются?
+2. Что обычно нужно сделать с векторами индекса при замене embedding-модели?
+3. Какие данные сохраняются вместе с чанком в Weaviate?
+4. Как top-k влияет на найденный контекст?
+5. Как оценить качество retrieval отдельно от ответа?
+6. Зачем нужно перекрытие чанков и какой точный процент перекрытия оптимален для этой базы?
+7. Какая точная версия Weaviate установлена в этом проекте?
+8. Как приготовить борщ и сколько минут варить свёклу?
 
-```python
-from rag_service.generation import RAGService
+Передайте любой вопрос в `uv run rag-answer "вопрос" --show-context`.
+[Фактические ответы и полный контекст](docs/day07-demo.md),
+[JSON-отчёт](docs/day07-demo.json) и
+[машиночитаемый набор вопросов](tests/data/demo_questions.json) позволяют проверить
+демонстрацию. Тексты новых ответов LLM могут отличаться.
 
-answer = RAGService(retrieval, llm_repository).answer("Как top-k влияет на контекст?")
-print(answer.answer)
-for source in answer.sources:
-    print(source.metadata.source_name, source.metadata.chunk_id)
-```
-
-[Отчёт дня 5](docs/day05-generation.md) содержит восемь сравнений, полный контекст
-и оценку ответов. В [JSON-результатах](docs/day05-comparison.json) сохранены
-метаданные, метрики retrieval и ответы модели. Повторный прогон:
+Воспроизведение демо в отдельной тестовой коллекции, удаляемой после теста:
 
 ```shell
-GENERATION_REPORT_PATH=/tmp/day05-comparison.json \
-  uv run pytest -m e2e tests/e2e/test_generation_pipeline.py
+DAY07_REPORT_PATH=/tmp/day07-demo.json \
+  uv run pytest -m e2e tests/e2e/test_demo_pipeline.py -q
 ```
 
-Integration и E2E-проверки генерации всегда вызывают реальные LLM API и БД.
-Переменные включения не требуются; отсутствие подключения или настроек — ошибка теста.
+Тест использует production CLI, defaults, реальную embedding-модель, Weaviate и LLM.
+Он проверяет повторную индексацию, источники, полные/частичные ответы и оба вида
+отказа; JSON сохраняет контекст, ответы, stdout CLI и число вызовов LLM.
 
-## Качество retrieval и слабый контекст — день 6
+## Настройки
 
-Оба режима используют абсолютный порог cosine distance:
+Полный образец — [`.env.example`](.env.example). Переменные окружения имеют
+приоритет над корневым `.env`; относительный путь модели разрешается от корня проекта.
 
-```dotenv
-RETRIEVAL_MAX_DISTANCE=0.16
-```
+| Настройка | Значение по умолчанию / назначение |
+| --- | --- |
+| `EMBEDDING_MODEL_ID` | `intfloat/multilingual-e5-small` |
+| `EMBEDDING_MODEL_REVISION` | Закреплённый snapshot из `.env.example` |
+| `EMBEDDING_MODEL_PATH` | `models/multilingual-e5-small` |
+| `EMBEDDING_DEVICE`, `EMBEDDING_BATCH_SIZE` | `cpu`, `32` |
+| `WEAVIATE_URL`, `WEAVIATE_GRPC_PORT` | `http://localhost:8080`, `50051` |
+| `WEAVIATE_COLLECTION` | `KnowledgeChunk` |
+| `WEAVIATE_INTEGRATION_COLLECTION` | `KnowledgeChunkIntegration` |
+| `WEAVIATE_E2E_COLLECTION` | `KnowledgeChunkE2E` |
+| `RETRIEVAL_MAX_DISTANCE` | `0.16`, допустимы конечные значения 0–2 |
+| `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | Обязательны для генерации |
+| `LLM_RETRY_MAX_ATTEMPTS` | `3`, включая первую попытку |
+| `LLM_RETRY_BASE_DELAY_SECONDS` | `0.5`, задержка удваивается |
 
-Разрешены конечные значения от 0 до 2. Уменьшение порога делает фильтр строже.
-Если ни один чанк не прошёл фильтр, система отказывает без вызова генерации LLM.
-Порог проверяет близость, а модель дополнительно проверяет наличие нужного факта:
-вопрос о версии Weaviate может быть близок к документу без указания версии.
-Логи показывают порог и число найденных, оставленных и отброшенных чанков.
+Timeout запроса LLM — 60 секунд. Сетевые ошибки, 429 и 5xx повторяются;
+некорректный JSON, неизвестные ссылки и полный ответ без источников дают ошибку CLI.
+Пустой/некорректный вопрос тоже даёт ненулевой exit code; честный отказ является
+нормальным результатом, а не ошибкой подключения.
 
-[Набор вопросов](tests/data/quality_questions.json) содержит шесть отвечаемых,
-четыре отрицательных и два частичных случая, заранее разделённых на подбор и
-проверку. [Отчёт](docs/day06-quality.md) и [результаты](docs/day06-quality.json)
-сравнивают 18 конфигураций и пороги 0.10–0.40 с выдачей без фильтра.
-Рекомендация для этой маленькой базы: chunk size/overlap `800/160`, semantic,
-top-k 5, distance ≤ 0.16. Размер и overlap измеряются в символах.
-Рабочий индекс и прежние defaults chunking/top-k автоматически не меняются.
-Чтобы применить рекомендацию, явно переиндексируйте базу:
+При смене корпуса или embedding-модели переиндексируйте документы и повторно
+проверьте порог relevance. Матрица качества:
 
 ```shell
-uv run rag-kb --chunk-size 800 --chunk-overlap 160
-uv run rag-answer "Как top-k влияет на найденный контекст?" --top-k 5
+uv run rag-evaluate --report /tmp/retrieval-quality.json
+uv run rag-evaluate --report /tmp/answer-quality.json --generate
 ```
 
-Воспроизведение в новой временной коллекции, удаляемой после эксперимента:
+## Проверки и диагностика
+
+Unit-тесты не требуют Docker, модели или API:
 
 ```shell
-uv run rag-evaluate --report /tmp/day06-retrieval.json
-uv run rag-evaluate --report /tmp/day06-quality.json --generate
-DAY06_REPORT_PATH=/tmp/day06-quality.json \
-  uv run pytest -m e2e tests/e2e/test_quality_pipeline.py
-```
-
-Первый запуск проверяет только retrieval. `--generate` и E2E дополнительно
-вызывают настроенный LLM API на выбранной конфигурации; эти вызовы могут быть
-платными. Выбор использует только половину вопросов для подбора. JSON сохраняет
-исходные чанки и их метрики, оценки всех порогов, параметры моделей, хеши
-документов и, при генерации, ответы и количество вызовов LLM.
-Изменение базы или embedding-модели требует повторной калибровки.
-
-## Тесты
-
-Unit-тесты не требуют модели, сети или Docker:
-
-```shell
-uv run pytest tests/unit
-```
-
-Integration и e2e используют настоящий локальный snapshot модели и реальный
-Weaviate. Если локальной модели ещё нет, первый запуск скачает её автоматически.
-
-```shell
-docker compose up -d
-uv run pytest -m integration tests/integration
-uv run pytest -m e2e tests/e2e
-```
-
-Статические проверки:
-
-```shell
+uv run pytest tests/unit -q
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
 ```
 
-## Локальная отладка
-
-Полный запуск с чистого checkout:
-
-```shell
-uv sync
-test -f .env || cp .env.example .env
-docker compose up -d
-docker compose ps
-uv run rag-kb
-```
-
-Первый запуск `rag-kb` без загруженной модели автоматически скачает snapshot в
-`EMBEDDING_MODEL_PATH`. Загрузка модели не требует отдельного CLI-аргумента.
-
-Логи контейнеров и проверки API:
+Реальные integration/E2E-тесты требуют запущенный Weaviate и локальную модель;
+проверки генерации дополнительно требуют настройки LLM API. Отсутствие подключения
+или ключа — ошибка, а не автоматический skip. Тестовые коллекции очищаются;
+не задавайте им имя рабочей коллекции.
 
 ```shell
-docker compose logs -f weaviate
-curl http://localhost:8080/v1/.well-known/ready
-curl http://localhost:8080/v1/schema
+docker compose up -d --wait
+uv run pytest -m integration tests/integration -q
+uv run pytest -m e2e tests/e2e -q
 ```
 
-Запуск одного теста и отладчика Python:
+Проверка готовности БД и просмотр логов:
 
 ```shell
-uv run pytest tests/unit/test_pipeline.py -vv
-uv run python -m pdb -m rag_service
+curl --fail http://localhost:8080/v1/.well-known/ready
+docker compose logs --tail 100 weaviate
 ```
 
-Обычная остановка сохраняет данные в Docker volume:
+Если коллекции нет, выполните `uv run rag-kb`. Если ответ отказной, посмотрите
+`rag-query` и `--show-context`: нужного факта может не быть в документах либо он
+не прошёл порог. Более высокий порог допускает больше контекста, но может добавить
+шум. При ошибке загрузки модели проверьте интернет и `EMBEDDING_MODEL_PATH`.
+При ошибке LLM проверьте ключ, endpoint, имя модели и лимиты провайдера.
 
-```shell
-docker compose stop
-```
+В UI `http://localhost:7777` выберите `KnowledgeChunk` и проверьте свойства,
+UUID и количество объектов. Основные команды работают независимо от UI.
+Для остановки: `docker compose stop`. Команда `docker compose down -v` удаляет
+контейнеры **и все данные локального Weaviate**.
 
-Полное удаление контейнеров вместе с локальными данными Weaviate — деструктивная
-операция:
-
-```shell
-docker compose down -v
-```
-
-## Проверка через веб-интерфейс
-
-1. Запустите `docker compose up -d` и выполните `uv run rag-kb`.
-2. Откройте `http://localhost:7777`.
-3. Выберите коллекцию `KnowledgeChunk`.
-4. Проверьте UUID, `document_id`, `source_name`, `chunk_id`, `text` и количество
-   объектов.
-5. Повторно выполните `uv run rag-kb`: количество объектов не должно увеличиться.
-
-Готовность самой БД можно проверить в браузере по адресу
-`http://localhost:8080/v1/.well-known/ready`.
-
-## Структура
+## Структура и Python API
 
 ```text
-knowledge_base/               исходные TXT-документы
-models/                       локально сохранённая embedding-модель
+knowledge_base/                исходные TXT-документы
+models/                        локальный snapshot (исключён из Git)
 src/rag_service/
-  embeddings.py              model manager и локальный embedding provider
-  pipeline.py                явные шаги индексации
-  retrieval.py               сервис semantic/hybrid retrieval
-  query_cli.py               CLI поиска контекста
-  generation.py              сервис запуска генерации
-  generation_content.py      модели ответа и подготовка prompt
-  application.py             сборка зависимостей и закрытие клиентов
-  generation_pipeline.py     явные шаги генерации ответа
-  answer_cli.py              CLI ответа и сравнения
-  repositories/
-    interfaces.py            порты ChunkRepository и LLMRepository
-    weaviate.py              Weaviate repository и подключение
-    llm.py                   OpenAI-совместимый LLM repository
-    __init__.py              публичные экспорты
-  interfaces.py              интерфейс embedding provider
-  loader.py, chunker.py       подготовка документов
-tests/unit/                   тесты со стабами
-tests/integration/            модель + настоящий Weaviate
-tests/e2e/                    полный production pipeline
+  loader.py, chunker.py         чтение и разбиение
+  embeddings.py                управление моделью и embeddings
+  pipeline.py, cli.py          индексация и rag-kb
+  retrieval.py, query_cli.py    retrieval и rag-query
+  generation_content.py        prompt и модели ответа
+  generation_pipeline.py       шаги генерации и проверки
+  generation.py, answer_cli.py  RAGService и rag-answer
+  application.py               сборка и закрытие клиентов
+  repositories/                порты и адаптеры Weaviate / LLM
+  evaluation*.py               оценка качества и rag-evaluate
+  settings.py, schemas.py       конфигурация и схемы данных
+tests/unit/                    проверки со стабами
+tests/integration/             реальные адаптеры
+tests/e2e/                     полные pipelines и демо
+tests/data/                    размеченные вопросы
+docs/                          отчёты дней 4–7
 ```
+
+```python
+from rag_service.application import open_generation
+
+with open_generation() as (service, llm):
+    result = service.answer("Как top-k влияет на найденный контекст?")
+    print(result.answer, result.insufficient_context)
+    for number, source in zip(result.source_ids, result.sources, strict=True):
+        print(number, source.metadata.source_name, source.metadata.chunk_id)
+```
+
+`RAGAnswer` содержит `answer`, `insufficient_context`, `source_ids`, `sources`,
+`context`. Зависимости передаются через интерфейсы; шаги индексации и генерации
+логируют прогресс и длительность. Проект намеренно остаётся учебным mini-product
+без ingestion UI, re-ranking и распределённой инфраструктуры.
+
+Предыдущие этапы: [retrieval](docs/day04-retrieval.md),
+[генерация](docs/day05-generation.md), [качество](docs/day06-quality.md).
+Отчёты сохраняют параметры своих прогонов; defaults дня 7 — 800/160, top-k 5.

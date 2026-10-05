@@ -61,6 +61,7 @@ def test_empty_search_returns_empty_context() -> None:
     repository = Mock(spec=ChunkRepository)
     repository.search.return_value = []
     assert RetrievalService(provider, repository).retrieve("вопрос") == []
+    repository.search.assert_called_once_with(provider.embed_query.return_value, 5)
 
 
 @pytest.mark.parametrize("mode", ["semantic", "hybrid"])

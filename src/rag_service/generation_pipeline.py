@@ -18,7 +18,7 @@ from rag_service.generation_content import (
 )
 from rag_service.pipeline import PipelineError
 from rag_service.repositories import LLMError, LLMRepository
-from rag_service.retrieval import RetrievalService, SearchMode, validate_query
+from rag_service.retrieval import DEFAULT_TOP_K, RetrievalService, SearchMode, validate_query
 from rag_service.schemas import ChunkSearchResult
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class GenerationContext:
     """Состояние запроса; None означает, что этап ещё не завершён."""
 
     query: str
-    top_k: int = 3
+    top_k: int = DEFAULT_TOP_K
     mode: SearchMode = "semantic"
     alpha: float = 0.5
     validated_query: str | None = None

@@ -9,7 +9,7 @@ from rag_service.generation_pipeline import (
 )
 from rag_service.pipeline import PipelineError
 from rag_service.repositories import LLMRepository
-from rag_service.retrieval import RetrievalService, SearchMode
+from rag_service.retrieval import DEFAULT_TOP_K, RetrievalService, SearchMode
 
 
 class RAGService:
@@ -25,7 +25,11 @@ class RAGService:
         )
 
     def answer(
-        self, query: str, top_k: int = 3, mode: SearchMode = "semantic", alpha: float = 0.5
+        self,
+        query: str,
+        top_k: int = DEFAULT_TOP_K,
+        mode: SearchMode = "semantic",
+        alpha: float = 0.5,
     ) -> RAGAnswer:
         context = self._pipeline.run(
             GenerationContext(query=query, top_k=top_k, mode=mode, alpha=alpha)

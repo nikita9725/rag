@@ -9,6 +9,8 @@ from rag_service.repositories import ChunkRepository, RepositoryError
 from rag_service.retrieval_quality import DEFAULT_MAX_DISTANCE
 from rag_service.schemas import ChunkSearchResult
 
+DEFAULT_TOP_K = 5
+
 SearchMode = Literal["semantic", "hybrid"]
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,11 @@ class RetrievalService:
         self.max_distance = max_distance
 
     def retrieve(
-        self, query: str, top_k: int = 3, mode: SearchMode = "semantic", alpha: float = 0.5
+        self,
+        query: str,
+        top_k: int = DEFAULT_TOP_K,
+        mode: SearchMode = "semantic",
+        alpha: float = 0.5,
     ) -> list[ChunkSearchResult]:
         query = validate_query(query, top_k, mode, alpha)
         vector = self._provider.embed_query(query)

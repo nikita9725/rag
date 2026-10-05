@@ -1,0 +1,10 @@
+[
+  {"id":"overlap","query":"Зачем соседние чанки частично перекрываются?","kind":"answerable","expected_sources":["02_chunking.txt"]},
+  {"id":"embedding","query":"Что обычно нужно сделать с векторами индекса при замене embedding-модели?","kind":"answerable","expected_sources":["03_embeddings.txt"]},
+  {"id":"metadata","query":"Какие данные сохраняются вместе с чанком в Weaviate?","kind":"answerable","expected_sources":["04_weaviate.txt"]},
+  {"id":"top-k","query":"Как top-k влияет на найденный контекст?","kind":"answerable","expected_sources":["05_retrieval.txt"]},
+  {"id":"evaluation","query":"Как оценить качество retrieval отдельно от ответа?","kind":"answerable","expected_sources":["07_quality_evaluation.txt"]},
+  {"id":"partial","query":"Зачем нужно перекрытие чанков и какой точный процент перекрытия оптимален для этой базы?","kind":"partial","expected_sources":["02_chunking.txt"]},
+  {"id":"version","query":"Какая точная версия Weaviate установлена в этом проекте?","kind":"unanswerable","expected_sources":[]},
+  {"id":"cooking","query":"Как приготовить борщ и сколько минут варить свёклу?","kind":"unanswerable","expected_sources":[]}
+]
