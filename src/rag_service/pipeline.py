@@ -8,8 +8,9 @@ from time import perf_counter
 from typing import Protocol
 
 from rag_service.chunker import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE, chunk_documents
-from rag_service.interfaces import ChunkRepository, EmbeddingProvider
+from rag_service.interfaces import EmbeddingProvider
 from rag_service.loader import load_documents
+from rag_service.repositories import ChunkRepository
 from rag_service.schemas import (
     Chunk,
     ChunkSearchResult,

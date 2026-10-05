@@ -2,7 +2,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from rag_service.interfaces import ChunkRepository, EmbeddingProvider
+from rag_service.interfaces import EmbeddingProvider
+from rag_service.repositories import ChunkRepository
 from rag_service.retrieval import RetrievalService, SearchMode
 from rag_service.schemas import ChunkMetadata, ChunkSearchResult
 

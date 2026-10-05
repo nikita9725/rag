@@ -2,7 +2,8 @@
 
 from typing import Literal
 
-from rag_service.interfaces import ChunkRepository, EmbeddingProvider
+from rag_service.interfaces import EmbeddingProvider
+from rag_service.repositories import ChunkRepository
 from rag_service.schemas import ChunkSearchResult
 
 SearchMode = Literal["semantic", "hybrid"]

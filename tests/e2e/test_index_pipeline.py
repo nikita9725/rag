@@ -4,7 +4,7 @@ import pytest
 
 from rag_service.cli import index_knowledge_base
 from rag_service.embeddings import LocalEmbeddingProvider
-from rag_service.repository import WeaviateChunkRepository
+from rag_service.repositories import WeaviateChunkRepository
 
 pytestmark = pytest.mark.e2e
 
