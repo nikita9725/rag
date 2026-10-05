@@ -33,6 +33,7 @@ def main(
         query = validate_query(args.query, args.top_k, args.mode, alpha)
         with service_factory() as service:
             results = service.retrieve(query, args.top_k, args.mode, alpha)
+            max_distance = service.max_distance
     except (
         ValueError,
         ValidationError,
@@ -44,17 +45,16 @@ def main(
         parser.error(str(error))
 
     print(f"Вопрос: {query}\nРежим: {args.mode}, top-k: {args.top_k}")
+    print(f"Порог cosine distance: {max_distance}")
     if args.mode == "hybrid":
         print(f"Alpha: {alpha}")
     if not results:
-        print("Контекст не найден: коллекция пуста или поиск не вернул результатов.")
+        print("Контекст не найден: нет фрагментов, прошедших порог надёжности.")
     for rank, result in enumerate(results, 1):
-        metric = (
-            f"distance={result.distance:.6f}"
-            if result.distance is not None
-            else f"score={result.score:.6f}"
-            if result.score is not None
-            else "метрика отсутствует"
+        metric = " ".join(
+            f"{name}={value:.6f}"
+            for name, value in (("distance", result.distance), ("score", result.score))
+            if value is not None
         )
         print(
             f"\n{rank}. source_name={result.metadata.source_name} "

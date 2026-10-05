@@ -4,7 +4,8 @@ from unittest.mock import Mock
 import pytest
 
 from rag_service.generation import RAGService, answer_without_retrieval
-from rag_service.repositories import LLMError, LLMRepository
+from rag_service.interfaces import EmbeddingProvider
+from rag_service.repositories import ChunkRepository, LLMError, LLMRepository
 from rag_service.retrieval import RetrievalService
 from rag_service.schemas import ChunkMetadata, ChunkSearchResult
 
@@ -113,3 +114,36 @@ def test_full_refusal_restores_known_citation() -> None:
     )
     result = RAGService(retrieval, llm).answer("вопрос")
     assert result.insufficient_context and result.source_ids == (1,)
+
+
+@pytest.mark.parametrize("keep", [False, True])
+def test_filtered_context_skips_llm_or_renumbers_sources(keep: bool) -> None:
+    provider = Mock(spec=EmbeddingProvider)
+    repository = Mock(spec=ChunkRepository)
+    repository.search.return_value = [
+        ChunkSearchResult(
+            uuid="weak",
+            content="Недостоверный контекст",
+            metadata=ChunkMetadata(document_id="doc", source_name="doc.txt", chunk_id=0),
+            distance=0.5,
+        ),
+        ChunkSearchResult(
+            uuid="good",
+            content="Подтверждённый факт",
+            metadata=ChunkMetadata(document_id="doc", source_name="doc.txt", chunk_id=1),
+            distance=0.1 if keep else 0.5,
+        ),
+    ]
+    llm = Mock(spec=LLMRepository)
+    llm.complete.return_value = (
+        '{"answer":"Подтверждённый факт [1]","source_ids":[1],"insufficient_context":false}'
+    )
+    result = RAGService(RetrievalService(provider, repository, max_distance=0.2), llm).answer("q")
+    if not keep:
+        assert result.insufficient_context and not result.sources and not result.context
+        llm.complete.assert_not_called()
+    else:
+        prompt = json.loads(llm.complete.call_args.args[1])
+        assert [chunk["source_id"] for chunk in prompt["context"]] == [1]
+        assert [chunk["text"] for chunk in prompt["context"]] == ["Подтверждённый факт"]
+        assert result.sources[0].uuid == "good" and result.source_ids == (1,)

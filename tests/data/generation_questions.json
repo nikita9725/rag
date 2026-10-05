@@ -7,7 +7,7 @@
     "insufficient_context": false
   },
   {
-    "query": "Почему документы и вопрос нужно кодировать одной embedding-моделью?",
+    "query": "Что обычно нужно сделать с векторами индекса при замене embedding-модели?",
     "expected_sources": [
       "03_embeddings.txt"
     ],

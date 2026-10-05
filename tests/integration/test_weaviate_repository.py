@@ -5,6 +5,8 @@ from weaviate import WeaviateClient
 
 from rag_service.embeddings import LocalEmbeddingProvider
 from rag_service.repositories import RepositoryError, WeaviateChunkRepository
+from rag_service.repositories.weaviate import cosine_distance
+from rag_service.retrieval import RetrievalService
 from rag_service.schemas import ChunkMetadata, VectorizedChunk
 
 pytestmark = pytest.mark.integration
@@ -65,7 +67,10 @@ def test_repository_syncs_updates_deletes_and_searches_real_vectors(
     assert len(hybrid) == 1
     assert hybrid[0].metadata.source_name == "doc-0.txt"
     assert hybrid[0].score is not None
-    assert hybrid[0].distance is None
+    assert hybrid[0].distance == pytest.approx(cosine_distance(query, changed[0].vector), abs=1e-6)
+    for mode in ("semantic", "hybrid"):
+        service = RetrievalService(real_embedding_provider, integration_repository, max_distance=0)
+        assert service.retrieve("Weaviate embeddings", mode=mode) == []
 
 
 def test_search_does_not_create_missing_collection(

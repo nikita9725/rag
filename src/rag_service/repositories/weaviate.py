@@ -1,7 +1,8 @@
 """Weaviate-реализация репозитория векторизованных чанков."""
 
 from collections.abc import Sequence
-from typing import TypedDict
+from math import isfinite, sqrt
+from typing import TypedDict, cast
 from urllib.parse import urlsplit
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -34,6 +35,18 @@ ChunkCollection = Collection[ChunkProperties, None]
 
 class RepositoryError(RuntimeError):
     """Ошибка схемы, записи или проверки векторного хранилища."""
+
+
+def cosine_distance(left: Sequence[float], right: Sequence[float]) -> float:
+    """Абсолютная метрика близости, независимая от hybrid fusion."""
+    if not left or len(left) != len(right) or not all(isfinite(x) for x in (*left, *right)):
+        raise RepositoryError("Некорректные векторы для вычисления cosine distance")
+    left_norm = sqrt(sum(x * x for x in left))
+    right_norm = sqrt(sum(x * x for x in right))
+    if not left_norm or not right_norm or not isfinite(left_norm * right_norm):
+        raise RepositoryError("Нулевая или некорректная норма поискового вектора")
+    similarity = sum(x * y for x, y in zip(left, right, strict=True)) / (left_norm * right_norm)
+    return max(0.0, min(2.0, 1.0 - similarity))
 
 
 def chunk_uuid(collection_name: str, chunk: VectorizedChunk) -> UUID:
@@ -168,12 +181,17 @@ class WeaviateChunkRepository(ChunkRepository):
             alpha=alpha,
             query_properties=["text"],
             fusion_type=HybridFusion.RELATIVE_SCORE,
+            include_vector=True,
             return_metadata=MetadataQuery(score=True),
         )
         results: list[ChunkSearchResult] = []
         for item in response.objects:
             if item.metadata.score is None:
                 raise RepositoryError("Weaviate не вернул score для hybrid результата")
+            stored_vector = item.vector.get("default")
+            if stored_vector is None or any(not isinstance(x, float | int) for x in stored_vector):
+                raise RepositoryError("Weaviate не вернул плоский default vector для hybrid")
+            distance = cosine_distance(vector, cast(list[float], stored_vector))
             properties = item.properties
             results.append(
                 ChunkSearchResult(
@@ -185,6 +203,7 @@ class WeaviateChunkRepository(ChunkRepository):
                         chunk_id=int(properties["chunk_id"]),
                     ),
                     score=float(item.metadata.score),
+                    distance=distance,
                 )
             )
         return results

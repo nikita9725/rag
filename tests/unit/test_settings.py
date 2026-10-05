@@ -100,3 +100,9 @@ def test_retry_settings_reject_invalid_values(values: dict[str, object]) -> None
                 **values,
             }
         )
+
+
+@pytest.mark.parametrize("distance", [-0.1, 2.1, float("nan"), float("inf")])
+def test_retrieval_threshold_validation(distance: float) -> None:
+    with pytest.raises(ValidationError):
+        Settings(retrieval_max_distance=distance)

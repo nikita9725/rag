@@ -22,7 +22,8 @@ def test_five_questions_in_both_modes(
     cases = json.loads(
         (Path(__file__).parents[1] / "data/retrieval_questions.json").read_text(encoding="utf-8")
     )
-    service = RetrievalService(real_embedding_provider, e2e_repository)
+    # Регрессия Дня 4 проверяет исходную выдачу, до политики Дня 6.
+    service = RetrievalService(real_embedding_provider, e2e_repository, max_distance=None)
     modes: tuple[SearchMode, ...] = ("semantic", "hybrid")
     for mode in modes:
         for case in cases:

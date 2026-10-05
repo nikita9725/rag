@@ -34,7 +34,9 @@ def open_retrieval() -> Iterator[RetrievalService]:
     client = connect_to_weaviate(settings.weaviate_url, settings.weaviate_grpc_port)
     try:
         yield RetrievalService(
-            provider, WeaviateChunkRepository(client, settings.weaviate_collection)
+            provider,
+            WeaviateChunkRepository(client, settings.weaviate_collection),
+            max_distance=settings.retrieval_max_distance,
         )
     finally:
         client.close()

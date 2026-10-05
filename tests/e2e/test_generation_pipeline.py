@@ -12,6 +12,7 @@ from rag_service.embeddings import LocalEmbeddingProvider
 from rag_service.generation import RAGAnswer, RAGService, answer_without_retrieval
 from rag_service.repositories import OpenAILLMRepository, WeaviateChunkRepository
 from rag_service.retrieval import RetrievalService
+from rag_service.retrieval_quality import DEFAULT_MAX_DISTANCE
 from rag_service.settings import PROJECT_ROOT, LLMSettings, Settings
 
 pytestmark = pytest.mark.e2e
@@ -38,8 +39,15 @@ def test_eight_questions_with_and_without_retrieval(
     real_embedding_provider: LocalEmbeddingProvider,
     e2e_repository: WeaviateChunkRepository,
 ) -> None:
+    # Проверяем полные ответы с контекстом, выбранным экспериментом Дня 6.
+    # 500/100, top-k 3 может не захватить объяснение и дать честный частичный ответ.
+    chunk_size, chunk_overlap, top_k = 800, 160, 5
     index_knowledge_base(
-        PROJECT_ROOT / "knowledge_base", 500, 100, real_embedding_provider, e2e_repository
+        PROJECT_ROOT / "knowledge_base",
+        chunk_size,
+        chunk_overlap,
+        real_embedding_provider,
+        e2e_repository,
     )
     cases = [
         GenerationCase.model_validate(case)
@@ -53,7 +61,7 @@ def test_eight_questions_with_and_without_retrieval(
     try:
         service = RAGService(RetrievalService(real_embedding_provider, e2e_repository), repository)
         for case in cases:
-            rag = service.answer(case.query)
+            rag = service.answer(case.query, top_k=top_k)
             baseline = answer_without_retrieval(case.query, repository)
             comparisons.append(
                 Comparison(
@@ -72,9 +80,10 @@ def test_eight_questions_with_and_without_retrieval(
         payload = {
             "llm_model": settings.llm_model,
             "embedding_model": Settings().embedding_model_id,
-            "chunk_size": 500,
-            "chunk_overlap": 100,
-            "top_k": 3,
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
+            "top_k": top_k,
+            "max_distance": DEFAULT_MAX_DISTANCE,
             "mode": "semantic",
             "comparisons": [item.model_dump(mode="json") for item in comparisons],
         }
